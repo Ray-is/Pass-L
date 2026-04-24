@@ -4,6 +4,7 @@
 # if you open the MicroPython REPL on serial
 # via thonny or a VSCode extension.
 from time import sleep
+from enum import Enum
 from machine import Pin
 from mfrc522 import MFRC522
 
@@ -38,27 +39,64 @@ RFID_MISO = 16
 RFID_CS = 17
 RFID_RST = 20
 
+
+# RFID status Enum
+class RfidStatus(Enum):
+    NO_FOB_DETECTED = 1
+    FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
+    FOB_AUTH_SUCCESS = 3  # Detected and successful
+    ERROR = 4
+
+
 # Main safe class definition
 class Safe:
-    def __init__(self):
+    def __init__(self):        
+        # Internal state variables
         self.passwordBuffer = ""
         self.keyboardAuthenticated = False
-        self.safeOpen = False
+        self.rfidAuthenticated = False
+        self.safeOpen = False  # assume safe is closed on power-on
         self.heldKey = None
         
-        # If we fail to initialize the RFID, hand and print the error forever
+        # If we fail to initialize the RFID, hang and print the error forever
         try:
             self.rdr = MFRC522(RFID_SCK, RFID_MOSI, RFID_MISO, RFID_CS, RFID_RST)
         except BaseException as e:
             while True:
                 print(f"ERROR initializing rfid: {e}")
                 sleep(5)
+                
+    def unlock_safe(self):
+        """
+        TODO - FINISH THIS
+        Uses the servo to unlock the safe if it isn't already unlocked.
+        This function should not return until the safe is actually locked.
+        Raahil's job
+        """
+        if self.safeOpen:
+            return
+        
+        # TODO blocking code to open the safe
+        self.safeOpen = True
+        
+    def lock_safe(self)
+        """
+        TODO - FINISH THIS
+        Uses the servo to close the safe if it isn't already locked.
+        This function should not return until the safe is actually locked.
+        Raahil's job
+        """
+        if not self.safeOpen:
+            return
+        
+        # TODO blocking code to close the safe
+        self.safeOpen = False
         
         
     def get_keypad_input(self):
         """
         Scans the keypad a single time and returns the key the user last pressed.
-        Will not return the same key twice; only returns one key for each press/release cycle.
+        Will not return the same key twice; only returns a non-None value once for each press/release cycle.
         Does not implement debouncing.
         Undefined behavior for multiple keys pressed at a time.
         
@@ -96,23 +134,89 @@ class Safe:
         return None
     
     
+    def get_rfid_status(self):
+        """
+        TODO - FINISH THIS
+        Returns an RFID status Enum. See the class definition above.
+        Ray's Job
+        """
+        pass # TODO
+    
+    
+    def send_push_notification(self, msg: str):
+        """
+        Sends a push notification to telegram using the wireless stuff.
+        Should return True if successful, False if unsuccessful.
+        Alphonz's Job
+        """
+        pass # TODO
+    
+    
     def loop(self):
+        """
+        Main loop.
+        This should be called repeatedly after creating the Safe object.
+        """
         
-        # Keyboard system
-        key = self.get_keypad_input()
-        if key is not None:
-            if key == KEYPAD_ENTER_KEY:
-                if self.passwordBuffer != KEYPAD_PASSWORD:
-                    self.keypadAuthenticated = False
-                    pass # TODO: notify user of incorrect password
+        # Logic for when both auth methods are passed
+        # If the safe isn't open yet, open it.
+        # If it's already open, wait for the user to press a key. Once they do, lock it.
+        if (self.rfidAuthenticated and self.keyboardAuthenticated):
+            if not self.safeOpen:
+                self.unlock_safe()
+                self.send_push_notification(f"Safe unlocked!")
+            if self.safeOpen:
+                key = self.get_keypad_input()
+                if key is not None:
+                    self.lock_safe()
+                    self.keyboardAuthenticated = False
+                    self.rfidAuthenticated = False
+                    self.send_push_notification(f"Safe locked.")
+        
+        # Keypad system
+        # We may want to change the logic to allow the user to re-lock the keypad auth without needing to open and close the safe.
+        # Currently, the only way to go from keypadAuthenticated = True to keypadAuthenticated = False is to successfully authenticate the RFID and close the safe again.
+        # This is insecure if the user changes their mind after getting the password right.
+        # Someone could authenticate with password and immediately leave; it would stay "password-unlocked" forever until it was fully unlocked.
+        # We could also have the "one auth successful but still locked" state expire back to the fully locked state after some delay.
+        # None of this is essential, so I haven't included it in this code.
+        if not self.keyboardAuthenticated:
+            key = self.get_keypad_input()
+            if key is not None:
+                if key == KEYPAD_ENTER_KEY:
+                    if self.passwordBuffer != KEYPAD_PASSWORD:
+                        self.keypadAuthenticated = False
+                        self.send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
+                    else:
+                        self.keypadAuthenticated = True
+                        self.send_push_notification(f"Password correct!")
+                    self.passwordBuffer = ""
                 else:
-                    self.keypadAuthenticated = True
-                self.passwordBuffer = ""
-            else:
-                self.passwordBuffer += key
-                
-    # RFID system
+                    self.passwordBuffer += key
+        
+        # RFID system
+        # Same issue as the keypad system above.
+        # If I authenticate successfully with RFID and leave, another user would only require the password to get in.
+        if not self.rfidAuthenticated:
+            rfidStatus = self.get_rfid_status()
+            if (rfidStatus == RfidStatus.NO_FOB_DETECTED):
+                pass # ignore
+            else if (rfidStatus == RfidStatus.FOB_AUTH_FAILURE):
+                self.rfidAuthenticated = False
+                self.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
+            else if (rfidStatus == RfidStatus.FOB_AUTH_SUCCESS):
+                self.rfidAuthenticated = True
+                self.send_push_notification(f"RFID authenticated successfully!")
+            else if (rfidStatus == RfidStatus.ERROR):
+                pass # ignore (maybe do something else)
+        
+        
     def test_rfid(self):
+        """
+        Debugging method for the RFID.
+        This will be removed once Ray figures out how to use the RFID properly.
+        TODO figure this sh*t out
+        """
         while True:
             (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
             print(stat)
@@ -145,11 +249,11 @@ class Safe:
                 
 
 
+# Main
 safe = Safe()
 safe.test_rfid()
 """
 while True:
-    sleep(0.1)
     safe.loop()
         
 """
