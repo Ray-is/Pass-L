@@ -287,7 +287,7 @@ def send_push_notification(self, msg: str):
             "Content-Type": "application/x-www-form-urlencoded"
         }
 
-        response = urequests.post(url, data=data, headers=headers)
+        response = urequests.post(url, data=data, headers=headers, timeout=3)
 
         print("Telegram status:", response.status_code)
         print("Response:", response.text)
@@ -295,7 +295,9 @@ def send_push_notification(self, msg: str):
         response.close()
 
         return True
-
+    except OSError as e:
+        print("Telegram timeout/network error:", e)
+        return False
     except Exception as e:
         print("Telegram error:", e)
         return False
