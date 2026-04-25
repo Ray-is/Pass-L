@@ -7,6 +7,8 @@ from time import sleep
 from enum import Enum
 from machine import Pin
 from mfrc522 import MFRC522
+import urequests
+import network
 
 # Constants for keypad
 KEYPAD_ENTER_KEY = "*"
@@ -244,12 +246,66 @@ class Safe:
                         print("Failed to select tag")
 
         
+#Push Notif section, Developed by Felix Garita
+#Telegram Bot constants
+BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
+CHAT_ID = 8787048379
 
-        
+# Wifi constants
+SSID = "Insert Wifi name here"
+WPASSWORD = "Insert Wifi password here"
+
+#Wfif connection command
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(SSID, WPASSWORD)
+
+    print("Connecting to WiFi...")
+    timeout = 15
+
+    while not wlan.isconnected() and timeout > 0:
+        print(".", end="")
+        sleep(1)
+        timeout -= 1
+
+    if wlan.isconnected():
+        print("\nConnected:", wlan.ifconfig())
+    else:
+        print("\nWiFi failed")
+
+#Push notif msg to Telegram
+
+def send_push_notification(self, msg: str):
+    try:
+        url = "https://api.telegram.org/bot{}/sendMessage".format(BOT_TOKEN)
+
+        data = "chat_id={}&text={}".format(CHAT_ID, msg)
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+        response = urequests.post(url, data=data, headers=headers)
+
+        print("Telegram status:", response.status_code)
+        print("Response:", response.text)
+
+        response.close()
+
+        return True
+
+    except Exception as e:
+        print("Telegram error:", e)
+        return False
+
                 
 
 
 # Main
+connect_wifi()
+
 safe = Safe()
 safe.test_rfid()
 """
