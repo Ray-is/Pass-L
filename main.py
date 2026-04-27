@@ -30,7 +30,7 @@ try:
     ]
 except BaseException as e:
     while True:
-        print(f"ERROR initializing keypad pins. Stopping code: {e}")
+        print(f"FATAL ERROR: could not initialize keypad pins: {e}")
         sleep(5)
 
 
@@ -42,17 +42,16 @@ RFID_CS = 17
 RFID_RST = 20
 
 # RFID accepted UIDs
-# Each fob stores a "password", and these are the passwords the safe accepts
-RFID_ACCEPTED_UIDS = [
-    "[0x6F, 0xF3, 0x86, 0xC2]",
+# Each fob stores a "password", and these are the passwords the safe accepts. This dict also stores the name of the fob holder
+RFID_ACCEPTED_UIDS = {
+    "[0x6F, 0xF3, 0x86, 0xC2]": "Ray",
     # Add more here as needed
-]
+}
 
 # RFID status constants. Micropython has no Enum implementation, so here we are
 RFID_NO_FOB_DETECTED = 1   # Fob not close enough to the reader
 RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
-RFID_FOB_AUTH_SUCCESS = 3  # Detected and successful
-RFID_ERROR = 4             # Any error
+RFID_ERROR = 3             # Any error
 
 
 # Main safe class definition
@@ -70,14 +69,14 @@ class Safe:
             self.rfidreader = MFRC522(spi_id=0,sck=RFID_SCK, miso=RFID_MISO, mosi=RFID_MOSI, cs=RFID_CS, rst=RFID_RST)
         except BaseException as e:
             while True:
-                print(f"ERROR initializing rfid. Stopped code: {e}")
+                print(f"FATAL ERROR: could not initialize rfid: {e}")
                 sleep(5)
                 
         # If we fail to connect to the wifi, print the error and continue
         self.wirelesshandler = WirelessHandler()
         wirelesshandler.connect()
         if not self.wirelesshandler.isconnected():
-            print(f"WARN: Could not connect to wifi. Continuing as normal with all telegram/wireless functionality disabled.")
+            print(f"WARN: Could not connect to wifi. Continuing with all telegram/wireless functionality disabled.")
 
 
     def unlock_safe(self):
@@ -151,7 +150,8 @@ class Safe:
     def get_rfid_status(self):
         """
         Function to poll the RFID reader for authentication.
-        Returns an RFID status constant (See definitions above).
+        If successful, returns the name of the card holder from the RFID_ACCEPTED_UIDS dictionary.
+        If unsuccessful, returns an RFID status constant (See definitions above).
         """
         self.rfidreader.init()
         
@@ -165,11 +165,10 @@ class Safe:
         
         # Loop through all accepted UIDs and return success if there is a match
         readUid = self.rfidreader.tohexstring(uid)
-        for acceptedUid in RFID_ACCEPTED_UIDS:
-            if readUid == acceptedUid:
-                return RFID_FOB_AUTH_SUCCESS
-
-        return RFID_FOB_AUTH_FAILURE
+        try:
+            return RFID_ACCEPTED_UIDS[readUid]
+        except KeyError:
+            return RFID_FOB_AUTH_FAILURE
     
     
     def loop(self):
@@ -219,16 +218,17 @@ class Safe:
         # If I authenticate successfully with RFID and leave, another user would only require the password to get in.
         if not self.rfidAuthenticated:
             rfidStatus = self.get_rfid_status()
-            if (rfidStatus == RFID_NO_FOB_DETECTED):
+            if isinstance(rfidStatus, str):
+                self.rfidAuthenticated = True
+                self.wirelesshandler.send_push_notification(f"RFID authenticated successfully by {rfidStatus}!")
+            elif (rfidStatus == RFID_NO_FOB_DETECTED):
                 pass # ignore
             elif (rfidStatus == RFID_FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
                 self.wirelesshandler.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
-            elif (rfidStatus == RFID_FOB_AUTH_SUCCESS):
-                self.rfidAuthenticated = True
-                self.wirelesshandler.send_push_notification(f"RFID authenticated successfully!")
             elif (rfidStatus == RFID_ERROR):
-                pass # ignore (maybe do something else)
+                self.rfidAuthenticated = False
+                self.wirelesshandler.send_push_notification(f"ERROR reading RFID keyfob. Try again.")
 
         
         
@@ -263,7 +263,7 @@ class WirelessHandler:
         if self.wlan.isconnected():
             print("\nConnected:", self.wlan.ifconfig())
         else:
-            print("\nERROR: WiFi failed to connect. Continuing as normal.")
+            print("\nWifi failed to connect.")
 
 
     def send_push_notification(self, msg: str):
