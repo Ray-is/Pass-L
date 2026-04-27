@@ -7,16 +7,14 @@ from time import sleep
 from machine import Pin
 from mfrc522 import MFRC522
 import urequests
-#import network
+import network
 
 
 # Constants for keypad
 KEYPAD_ENTER_KEY = "*"
 KEYPAD_PASSWORD = "123"
 
-
-# Keypad pin objects (initialized on creation)
-# If we fail to initialize the pins, hang and print the error forever
+# Keypad pin objects (initialized on creation). If we fail to initialize the pins, hang and print the error forever.
 try:
     KEYPAD_ROWS = [
         Pin(2, Pin.OPEN_DRAIN, 1),
@@ -32,7 +30,7 @@ try:
     ]
 except BaseException as e:
     while True:
-        print(f"ERROR initializing keypad pins: {e}")
+        print(f"ERROR initializing keypad pins. Stopping code: {e}")
         sleep(5)
 
 
@@ -43,13 +41,18 @@ RFID_MISO = 16
 RFID_CS = 17
 RFID_RST = 20
 
+# RFID accepted UIDs
+# Each fob stores a "password", and these are the passwords the safe accepts
+RFID_ACCEPTED_UIDS = [
+    "[0x6F, 0xF3, 0x86, 0xC2]",
+    # Add more here as needed
+]
 
-# RFID status constants
-# Micropython has no Enum implementation, so here we are
-RFID_NO_FOB_DETECTED = 1
+# RFID status constants. Micropython has no Enum implementation, so here we are
+RFID_NO_FOB_DETECTED = 1   # Fob not close enough to the reader
 RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
 RFID_FOB_AUTH_SUCCESS = 3  # Detected and successful
-RFID_ERROR = 4
+RFID_ERROR = 4             # Any error
 
 
 # Main safe class definition
@@ -64,12 +67,19 @@ class Safe:
         
         # If we fail to initialize the RFID, hang and print the error forever
         try:
-            self.rdr = MFRC522(RFID_SCK, RFID_MOSI, RFID_MISO, RFID_CS, RFID_RST)
+            self.rfidreader = MFRC522(spi_id=0,sck=RFID_SCK, miso=RFID_MISO, mosi=RFID_MOSI, cs=RFID_CS, rst=RFID_RST)
         except BaseException as e:
             while True:
-                print(f"ERROR initializing rfid: {e}")
+                print(f"ERROR initializing rfid. Stopped code: {e}")
                 sleep(5)
                 
+        # If we fail to connect to the wifi, print the error and continue
+        self.wirelesshandler = WirelessHandler()
+        wirelesshandler.connect()
+        if not self.wirelesshandler.isconnected():
+            print(f"WARN: Could not connect to wifi. Continuing as normal with all telegram/wireless functionality disabled.")
+
+
     def unlock_safe(self):
         """
         TODO - FINISH THIS
@@ -140,11 +150,26 @@ class Safe:
     
     def get_rfid_status(self):
         """
-        TODO - FINISH THIS
+        Function to poll the RFID reader for authentication.
         Returns an RFID status constant (See definitions above).
-        Ray's Job
         """
-        return RFID_FOB_AUTH_SUCCESS
+        self.rfidreader.init()
+        
+        (stat, tag_type) = self.rfidreader.request(self.rfidreader.REQIDL)
+        if stat != self.rfidreader.OK:
+            return RFID_NO_FOB_DETECTED
+        
+        (stat, uid) = self.rfidreader.SelectTagSN()
+        if stat != self.rfidreader.OK:
+            return RFID_ERROR
+        
+        # Loop through all accepted UIDs and return success if there is a match
+        readUid = self.rfidreader.tohexstring(uid)
+        for acceptedUid in RFID_ACCEPTED_UIDS:
+            if readUid == acceptedUid:
+                return RFID_FOB_AUTH_SUCCESS
+
+        return RFID_FOB_AUTH_FAILURE
     
     
     def loop(self):
@@ -159,14 +184,14 @@ class Safe:
         if (self.rfidAuthenticated and self.keypadAuthenticated):
             if not self.safeOpen:
                 self.unlock_safe()
-                send_push_notification(f"Safe unlocked!")
+                self.wirelesshandler.send_push_notification(f"Safe unlocked!")
             if self.safeOpen:
                 key = self.get_keypad_input()
                 if key is not None:
                     self.lock_safe()
                     self.keypadAuthenticated = False
                     self.rfidAuthenticated = False
-                    send_push_notification(f"Safe locked.")
+                    self.wirelesshandler.send_push_notification(f"Safe locked.")
         
         # Keypad system
         # We may want to change the logic to allow the user to re-lock the keypad auth without needing to open and close the safe.
@@ -181,10 +206,10 @@ class Safe:
                 if key == KEYPAD_ENTER_KEY:
                     if self.passwordBuffer != KEYPAD_PASSWORD:
                         self.keypadAuthenticated = False
-                        send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
+                        self.wirelesshandler.send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
                     else:
                         self.keypadAuthenticated = True
-                        send_push_notification(f"Password correct!")
+                        self.wirelesshandler.send_push_notification(f"Password correct!")
                     self.passwordBuffer = ""
                 else:
                     self.passwordBuffer += key
@@ -198,10 +223,10 @@ class Safe:
                 pass # ignore
             elif (rfidStatus == RFID_FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
-                send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
+                self.wirelesshandler.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
             elif (rfidStatus == RFID_FOB_AUTH_SUCCESS):
                 self.rfidAuthenticated = True
-                send_push_notification(f"RFID authenticated successfully!")
+                self.wirelesshandler.send_push_notification(f"RFID authenticated successfully!")
             elif (rfidStatus == RFID_ERROR):
                 pass # ignore (maybe do something else)
 
@@ -209,73 +234,79 @@ class Safe:
         
         
 # Push Notif section, Developed by Felix Garita
-# Telegram Bot constants
-BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
-CHAT_ID = 8787048379
+# TODO remove print statements once done
+class WirelessHandler:
+    def __init__(self):
+        self.BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
+        self.CHAT_ID = 8787048379
+        self.SSID = "Insert Wifi name here"
+        self.WPASSWORD = "bleh"
+        self.connected = False
+        
+        self.wlan = network.WLAN(network.STA_IF)
 
-# Wifi constants
-# Possible improvement: have these be lists, so we can configure many networks for it to try and connect to
-SSID = "Insert Wifi name here"
-WPASSWORD = "Insert Wifi password here"
+    def connect_wifi(self):
+        """
+        Function to connect to wifi.
+        """
+        self.wlan.active(True)
+        self.wlan.connect(self.SSID, self.WPASSWORD)
 
-def connect_wifi():
-    """
-    Function to connect to wifi.
-    """
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.connect(SSID, WPASSWORD)
+        print("Connecting to WiFi...")
+        timeout = 15
 
-    print("Connecting to WiFi...")
-    timeout = 15
+        while not wlan.isconnected() and timeout > 0:
+            print(".", end="")
+            sleep(1)
+            timeout -= 1
 
-    while not wlan.isconnected() and timeout > 0:
-        print(".", end="")
-        sleep(1)
-        timeout -= 1
-
-    if wlan.isconnected():
-        print("\nConnected:", wlan.ifconfig())
-    else:
-        print("\nERROR: WiFi failed to connect. Continuing as normal.")
+        if self.wlan.isconnected():
+            print("\nConnected:", self.wlan.ifconfig())
+        else:
+            print("\nERROR: WiFi failed to connect. Continuing as normal.")
 
 
-def send_push_notification(msg: str):
-    """
-    Function to send a push notification to the telegram API.
-    """
-    try:
-        url = "https://api.telegram.org/bot{}/sendMessage".format(BOT_TOKEN)
+    def send_push_notification(self, msg: str):
+        """
+        Function to send a push notification to the telegram API.
+        """
+        if not self.isconnected():
+            print(f"WARN: Cannot send push notif, not connected to wifi. Attempted to send \"{msg}\"")
+            return False
+        
+        try:
+            url = "https://api.telegram.org/bot{}/sendMessage".format(self.BOT_TOKEN)
 
-        data = "chat_id={}&text={}".format(CHAT_ID, msg)
+            data = "chat_id={}&text={}".format(self.CHAT_ID, msg)
 
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
 
-        response = urequests.post(url, data=data, headers=headers, timeout=3)
+            response = urequests.post(url, data=data, headers=headers, timeout=3)
 
-        print("Telegram status:", response.status_code)
-        print("Response:", response.text)
+            print("Telegram status:", response.status_code)
+            print("Response:", response.text)
 
-        response.close()
+            response.close()
 
-        return True  # need more logic in here, if response.status_code... is an error or unsuccessful, return false
-    except OSError as e:
-        print("Telegram timeout/network error:", e)
-        return False
-    except Exception as e:
-        print("Telegram error:", e)
-        return False
+            return True  # TODO need more logic in here, if response.status_code is an error or unsuccessful, return False
+        except OSError as e:
+            print("Telegram timeout/network error:", e)
+            return False
+        except Exception as e:
+            print("Telegram error:", e)
+            return False
+        
+    
+    def isconnected(self):
+        return self.wlan.isconnected()
 
                 
 
 
-# Main
-# connect_wifi()
-
-safe = Safe()
-
+# Entry point. This is the first code that runs
+safe = Safe()  # calls safe.__init__
 while True:
     safe.loop()   
 
