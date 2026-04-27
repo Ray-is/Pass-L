@@ -14,7 +14,7 @@ import network
 KEYPAD_ENTER_KEY = "*"
 KEYPAD_PASSWORD = "123"
 
-# Keypad pins (initialized on creation)
+# Keypad pin objects (initialized on creation)
 # If we fail to initialize the pins, hang and print the error forever
 try:
     KEYPAD_ROWS = [
@@ -42,7 +42,7 @@ RFID_CS = 17
 RFID_RST = 20
 
 
-# RFID status Enum
+# RFID status Enum class
 class RfidStatus(Enum):
     NO_FOB_DETECTED = 1
     FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
@@ -55,7 +55,7 @@ class Safe:
     def __init__(self):        
         # Internal state variables
         self.passwordBuffer = ""
-        self.keyboardAuthenticated = False
+        self.keypadAuthenticated = False
         self.rfidAuthenticated = False
         self.safeOpen = False  # assume safe is closed on power-on
         self.heldKey = None
@@ -72,7 +72,7 @@ class Safe:
         """
         TODO - FINISH THIS
         Uses the servo to unlock the safe if it isn't already unlocked.
-        This function should not return until the safe is actually locked.
+        This function should not return until the safe is actually unlocked.
         Raahil's job
         """
         if self.safeOpen:
@@ -139,7 +139,7 @@ class Safe:
     def get_rfid_status(self):
         """
         TODO - FINISH THIS
-        Returns an RFID status Enum. See the class definition above.
+        Returns an RFID status Enum (See the enum class definition above).
         Ray's Job
         """
         pass # TODO
@@ -163,17 +163,17 @@ class Safe:
         # Logic for when both auth methods are passed
         # If the safe isn't open yet, open it.
         # If it's already open, wait for the user to press a key. Once they do, lock it.
-        if (self.rfidAuthenticated and self.keyboardAuthenticated):
+        if (self.rfidAuthenticated and self.keypadAuthenticated):
             if not self.safeOpen:
                 self.unlock_safe()
-                self.send_push_notification(f"Safe unlocked!")
+                send_push_notification(f"Safe unlocked!")
             if self.safeOpen:
                 key = self.get_keypad_input()
                 if key is not None:
                     self.lock_safe()
-                    self.keyboardAuthenticated = False
+                    self.keypadAuthenticated = False
                     self.rfidAuthenticated = False
-                    self.send_push_notification(f"Safe locked.")
+                    send_push_notification(f"Safe locked.")
         
         # Keypad system
         # We may want to change the logic to allow the user to re-lock the keypad auth without needing to open and close the safe.
@@ -182,16 +182,16 @@ class Safe:
         # Someone could authenticate with password and immediately leave; it would stay "password-unlocked" forever until it was fully unlocked.
         # We could also have the "one auth successful but still locked" state expire back to the fully locked state after some delay.
         # None of this is essential, so I haven't included it in this code.
-        if not self.keyboardAuthenticated:
+        if not self.keypadAuthenticated:
             key = self.get_keypad_input()
             if key is not None:
                 if key == KEYPAD_ENTER_KEY:
                     if self.passwordBuffer != KEYPAD_PASSWORD:
                         self.keypadAuthenticated = False
-                        self.send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
+                        send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
                     else:
                         self.keypadAuthenticated = True
-                        self.send_push_notification(f"Password correct!")
+                        send_push_notification(f"Password correct!")
                     self.passwordBuffer = ""
                 else:
                     self.passwordBuffer += key
@@ -205,10 +205,10 @@ class Safe:
                 pass # ignore
             else if (rfidStatus == RfidStatus.FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
-                self.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
+                send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
             else if (rfidStatus == RfidStatus.FOB_AUTH_SUCCESS):
                 self.rfidAuthenticated = True
-                self.send_push_notification(f"RFID authenticated successfully!")
+                send_push_notification(f"RFID authenticated successfully!")
             else if (rfidStatus == RfidStatus.ERROR):
                 pass # ignore (maybe do something else)
         
@@ -246,18 +246,22 @@ class Safe:
                         print("Failed to select tag")
 
         
-#Push Notif section, Developed by Felix Garita
-#Telegram Bot constants
+        
+        
+# Push Notif section, Developed by Felix Garita
+# Telegram Bot constants
 BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
 CHAT_ID = 8787048379
 
 # Wifi constants
+# Possible improvement: have these be lists, so we can configure many networks for it to try and connect to
 SSID = "Insert Wifi name here"
 WPASSWORD = "Insert Wifi password here"
 
-#Wfif connection command
-
 def connect_wifi():
+    """
+    Function to connect to wifi.
+    """
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect(SSID, WPASSWORD)
@@ -273,11 +277,13 @@ def connect_wifi():
     if wlan.isconnected():
         print("\nConnected:", wlan.ifconfig())
     else:
-        print("\nWiFi failed")
+        print("\nERROR: WiFi failed to connect. Continuing as normal.")
 
-#Push notif msg to Telegram
 
 def send_push_notification(self, msg: str):
+    """
+    Function to send a push notification to the telegram API.
+    """
     try:
         url = "https://api.telegram.org/bot{}/sendMessage".format(BOT_TOKEN)
 
@@ -294,7 +300,7 @@ def send_push_notification(self, msg: str):
 
         response.close()
 
-        return True
+        return True  # need more logic in here, if response.status_code... is an error or unsuccessful, return false
     except OSError as e:
         print("Telegram timeout/network error:", e)
         return False
