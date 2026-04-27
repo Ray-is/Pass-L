@@ -4,15 +4,16 @@
 # if you open the MicroPython REPL on serial
 # via thonny or a VSCode extension.
 from time import sleep
-from enum import Enum
 from machine import Pin
 from mfrc522 import MFRC522
 import urequests
-import network
+#import network
+
 
 # Constants for keypad
 KEYPAD_ENTER_KEY = "*"
 KEYPAD_PASSWORD = "123"
+
 
 # Keypad pin objects (initialized on creation)
 # If we fail to initialize the pins, hang and print the error forever
@@ -34,6 +35,7 @@ except BaseException as e:
         print(f"ERROR initializing keypad pins: {e}")
         sleep(5)
 
+
 # RFID pin numbers (fed to third-party RFID class)
 RFID_SCK = 18
 RFID_MOSI = 19
@@ -42,12 +44,12 @@ RFID_CS = 17
 RFID_RST = 20
 
 
-# RFID status Enum class
-class RfidStatus(Enum):
-    NO_FOB_DETECTED = 1
-    FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
-    FOB_AUTH_SUCCESS = 3  # Detected and successful
-    ERROR = 4
+# RFID status constants
+# Micropython has no Enum implementation, so here we are
+RFID_NO_FOB_DETECTED = 1
+RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
+RFID_FOB_AUTH_SUCCESS = 3  # Detected and successful
+RFID_ERROR = 4
 
 
 # Main safe class definition
@@ -81,7 +83,7 @@ class Safe:
         # TODO blocking code to open the safe
         self.safeOpen = True
         
-    def lock_safe(self)
+    def lock_safe(self):
         """
         TODO - FINISH THIS
         Uses the servo to close the safe if it isn't already locked.
@@ -139,19 +141,10 @@ class Safe:
     def get_rfid_status(self):
         """
         TODO - FINISH THIS
-        Returns an RFID status Enum (See the enum class definition above).
+        Returns an RFID status constant (See definitions above).
         Ray's Job
         """
-        pass # TODO
-    
-    
-    def send_push_notification(self, msg: str):
-        """
-        Sends a push notification to telegram using the wireless stuff.
-        Should return True if successful, False if unsuccessful.
-        Alphonz's Job
-        """
-        pass # TODO
+        return RFID_FOB_AUTH_SUCCESS
     
     
     def loop(self):
@@ -201,49 +194,16 @@ class Safe:
         # If I authenticate successfully with RFID and leave, another user would only require the password to get in.
         if not self.rfidAuthenticated:
             rfidStatus = self.get_rfid_status()
-            if (rfidStatus == RfidStatus.NO_FOB_DETECTED):
+            if (rfidStatus == RFID_NO_FOB_DETECTED):
                 pass # ignore
-            else if (rfidStatus == RfidStatus.FOB_AUTH_FAILURE):
+            elif (rfidStatus == RFID_FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
                 send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
-            else if (rfidStatus == RfidStatus.FOB_AUTH_SUCCESS):
+            elif (rfidStatus == RFID_FOB_AUTH_SUCCESS):
                 self.rfidAuthenticated = True
                 send_push_notification(f"RFID authenticated successfully!")
-            else if (rfidStatus == RfidStatus.ERROR):
+            elif (rfidStatus == RFID_ERROR):
                 pass # ignore (maybe do something else)
-        
-        
-    def test_rfid(self):
-        """
-        Debugging method for the RFID.
-        This will be removed once Ray figures out how to use the RFID properly.
-        TODO figure this sh*t out
-        """
-        while True:
-            (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
-            print(stat)
-
-            if stat == self.rdr.OK:
-
-                (stat, raw_uid) = self.rdr.anticoll()
-
-                if stat == self.rdr.OK:
-                    print("New card detected")
-                    print("  - tag type: 0x%02x" % tag_type)
-                    print("  - uid	 : 0x%02x%02x%02x%02x" % (raw_uid[0], raw_uid[1], raw_uid[2], raw_uid[3]))
-                    print("")
-
-                    if self.rdr.select_tag(raw_uid) == self.rdr.OK:
-
-                        key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-
-                        if self.rdr.auth(self.rdr.AUTHENT1A, 8, key, raw_uid) == self.rdr.OK:
-                            print("Address 8 data: %s" % self.rdr.read(8))
-                            self.rdr.stop_crypto1()
-                        else:
-                            print("Authentication error")
-                    else:
-                        print("Failed to select tag")
 
         
         
@@ -280,7 +240,7 @@ def connect_wifi():
         print("\nERROR: WiFi failed to connect. Continuing as normal.")
 
 
-def send_push_notification(self, msg: str):
+def send_push_notification(msg: str):
     """
     Function to send a push notification to the telegram API.
     """
@@ -312,15 +272,12 @@ def send_push_notification(self, msg: str):
 
 
 # Main
-connect_wifi()
+# connect_wifi()
 
 safe = Safe()
-safe.test_rfid()
-"""
+
 while True:
-    safe.loop()
-        
-"""
+    safe.loop()   
 
 
         
