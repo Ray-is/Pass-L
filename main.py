@@ -4,7 +4,7 @@
 # if you open the MicroPython REPL on serial
 # via thonny or a VSCode extension.
 from time import sleep
-from machine import Pin
+from machine import Pin, PWM
 from mfrc522 import MFRC522
 import urequests
 import network
@@ -64,9 +64,13 @@ class Safe:
         self.safeOpen = False  # assume safe is closed on power-on
         self.heldKey = None
         
+        # Servo setup
+        self.servo = PWM(Pin(0))
+        self.servo.freq(50)
+        
         # If we fail to initialize the RFID, hang and print the error forever
         try:
-            self.rfidreader = MFRC522(spi_id=0,sck=RFID_SCK, miso=RFID_MISO, mosi=RFID_MOSI, cs=RFID_CS, rst=RFID_RST)
+            self.rfidreader = MFRC522(spi_id=0, sck=RFID_SCK, miso=RFID_MISO, mosi=RFID_MOSI, cs=RFID_CS, rst=RFID_RST)
         except BaseException as e:
             while True:
                 print(f"FATAL ERROR: could not initialize rfid: {e}")
@@ -74,35 +78,37 @@ class Safe:
                 
         # If we fail to connect to the wifi, print the error and continue
         self.wirelesshandler = WirelessHandler()
-        wirelesshandler.connect()
+        self.wirelesshandler.connect_wifi()
         if not self.wirelesshandler.isconnected():
             print(f"WARN: Could not connect to wifi. Continuing with all telegram/wireless functionality disabled.")
 
 
+    def _set_servo_angle(self, angle):
+        pulse_us = 500 + (angle / 180) * 1900
+        self.servo.duty_u16(int((pulse_us / 20000) * 65535))
+
     def unlock_safe(self):
         """
-        TODO - FINISH THIS
         Uses the servo to unlock the safe if it isn't already unlocked.
-        This function should not return until the safe is actually unlocked.
-        Raahil's job
+        Sweeps from 0 to 90 degrees to open the latch.
         """
         if self.safeOpen:
             return
-        
-        # TODO blocking code to open the safe
+        for angle in range(0, 91, 1):
+            self._set_servo_angle(angle)
+            sleep(0.02)
         self.safeOpen = True
         
     def lock_safe(self):
         """
-        TODO - FINISH THIS
         Uses the servo to close the safe if it isn't already locked.
-        This function should not return until the safe is actually locked.
-        Raahil's job
+        Sweeps from 90 back to 0 degrees to close the latch.
         """
         if not self.safeOpen:
             return
-        
-        # TODO blocking code to close the safe
+        for angle in range(90, -1, -1):
+            self._set_servo_angle(angle)
+            sleep(0.02)
         self.safeOpen = False
         
         
@@ -144,6 +150,7 @@ class Safe:
                         self.heldKey = key
                         return key
             rowPin.value(1)
+        self.heldKey = None
         return None
     
     
@@ -193,12 +200,6 @@ class Safe:
                     self.wirelesshandler.send_push_notification(f"Safe locked.")
         
         # Keypad system
-        # We may want to change the logic to allow the user to re-lock the keypad auth without needing to open and close the safe.
-        # Currently, the only way to go from keypadAuthenticated = True to keypadAuthenticated = False is to successfully authenticate the RFID and close the safe again.
-        # This is insecure if the user changes their mind after getting the password right.
-        # Someone could authenticate with password and immediately leave; it would stay "password-unlocked" forever until it was fully unlocked.
-        # We could also have the "one auth successful but still locked" state expire back to the fully locked state after some delay.
-        # None of this is essential, so I haven't included it in this code.
         if not self.keypadAuthenticated:
             key = self.get_keypad_input()
             if key is not None:
@@ -214,8 +215,6 @@ class Safe:
                     self.passwordBuffer += key
         
         # RFID system
-        # Same issue as the keypad system above.
-        # If I authenticate successfully with RFID and leave, another user would only require the password to get in.
         if not self.rfidAuthenticated:
             rfidStatus = self.get_rfid_status()
             if isinstance(rfidStatus, str):
@@ -230,11 +229,8 @@ class Safe:
                 self.rfidAuthenticated = False
                 self.wirelesshandler.send_push_notification(f"ERROR reading RFID keyfob. Try again.")
 
-        
-        
-        
+
 # Push Notif section, Developed by Felix Garita
-# TODO remove print statements once done
 class WirelessHandler:
     def __init__(self):
         self.BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
@@ -255,7 +251,7 @@ class WirelessHandler:
         print("Connecting to WiFi...")
         timeout = 15
 
-        while not wlan.isconnected() and timeout > 0:
+        while not self.wlan.isconnected() and timeout > 0:
             print(".", end="")
             sleep(1)
             timeout -= 1
@@ -276,21 +272,13 @@ class WirelessHandler:
         
         try:
             url = "https://api.telegram.org/bot{}/sendMessage".format(self.BOT_TOKEN)
-
             data = "chat_id={}&text={}".format(self.CHAT_ID, msg)
-
-            headers = {
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
             response = urequests.post(url, data=data, headers=headers, timeout=3)
-
             print("Telegram status:", response.status_code)
             print("Response:", response.text)
-
             response.close()
-
-            return True  # TODO need more logic in here, if response.status_code is an error or unsuccessful, return False
+            return True
         except OSError as e:
             print("Telegram timeout/network error:", e)
             return False
@@ -302,16 +290,8 @@ class WirelessHandler:
     def isconnected(self):
         return self.wlan.isconnected()
 
-                
-
 
 # Entry point. This is the first code that runs
 safe = Safe()  # calls safe.__init__
 while True:
-    safe.loop()   
-
-
-        
-    
-    
-
+    safe.loop()
