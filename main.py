@@ -14,6 +14,7 @@ import network
 KEYPAD_ENTER_KEY = "*"
 KEYPAD_PASSWORD = "123"
 
+
 # Keypad pin objects (initialized on creation). If we fail to initialize the pins, hang and print the error forever.
 try:
     KEYPAD_ROWS = [
@@ -41,6 +42,7 @@ RFID_MISO = 16
 RFID_CS = 17
 RFID_RST = 20
 
+
 # RFID accepted UIDs
 # Each fob stores a "password", and these are the passwords the safe accepts. This dict also stores the name of the fob holder
 RFID_ACCEPTED_UIDS = {
@@ -48,10 +50,30 @@ RFID_ACCEPTED_UIDS = {
     # Add more here as needed
 }
 
+
 # RFID status constants. Micropython has no Enum implementation, so here we are
 RFID_NO_FOB_DETECTED = 1   # Fob not close enough to the reader
 RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
 RFID_ERROR = 3             # Any error
+
+
+# LED pin objects (initialized on creation). If we fail to initialize the pins, hang and print the error forever.
+try:
+    GREEN_LED = Pin(10, Pin.OUT, 0),
+    RED_LED = Pin(11, Pin.OUT, 0),
+except BaseException as e:
+    while True:
+        print(f"FATAL ERROR: could not initialize LED pins: {e}")
+        sleep(5)
+
+
+def flash_led(led, durationS):
+    """
+    Turns the LED on, waits durationS seconds, then turns it off.
+    """
+    led.value(1)
+    sleep(durationS)
+    led.value(0)
 
 
 # Main safe class definition
@@ -213,6 +235,7 @@ class Safe:
                     self.passwordBuffer = ""
                 else:
                     self.passwordBuffer += key
+                    flash_led(GREEN_LED, 0.1)
         
         # RFID system
         if not self.rfidAuthenticated:
@@ -224,10 +247,23 @@ class Safe:
                 pass # ignore
             elif (rfidStatus == RFID_FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
+                flash_led(RED_LED, 0.2)
                 self.wirelesshandler.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
             elif (rfidStatus == RFID_ERROR):
                 self.rfidAuthenticated = False
+                flash_led(RED_LED, 0.2)
                 self.wirelesshandler.send_push_notification(f"ERROR reading RFID keyfob. Try again.")
+
+        
+        # LED handling
+        if self.rfidAuthenticated:
+            RED_LED.value(1)
+        else:
+            RED_LED.value(0)
+        if self.keypadAuthenticated:
+            GREEN_LED.value(1)
+        else:
+            GREEN_LED.value(0)
 
 
 # Push Notif section, Developed by Felix Garita
