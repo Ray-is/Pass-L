@@ -51,6 +51,10 @@ RFID_ACCEPTED_UIDS = {
 }
 
 
+# Self explanatory
+PRINT_ALL_TELEGRAM_TO_CONSOLE = True
+
+
 # RFID status constants. Micropython has no Enum implementation, so here we are
 RFID_NO_FOB_DETECTED = 1   # Fob not close enough to the reader
 RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
@@ -236,6 +240,7 @@ class Safe:
                 else:
                     self.passwordBuffer += key
                     flash_led(GREEN_LED, 0.1)
+                    print(key)
         
         # RFID system
         if not self.rfidAuthenticated:
@@ -305,6 +310,8 @@ class WirelessHandler:
         if not self.isconnected():
             print(f"WARN: Cannot send push notif, not connected to wifi. Attempted to send \"{msg}\"")
             return False
+        elif PRINT_ALL_TELEGRAM_TO_CONSOLE:
+            print("Telegram: ", msg)
         
         try:
             url = "https://api.telegram.org/bot{}/sendMessage".format(self.BOT_TOKEN)
