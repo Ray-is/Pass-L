@@ -7,7 +7,7 @@ from time import sleep
 from machine import Pin, PWM
 from mfrc522 import MFRC522
 import urequests
-import network
+#import network
 
 
 # Constants for keypad
@@ -63,8 +63,8 @@ RFID_ERROR = 3             # Any error
 
 # LED pin objects (initialized on creation). If we fail to initialize the pins, hang and print the error forever.
 try:
-    GREEN_LED = Pin(10, Pin.OUT, 0),
-    RED_LED = Pin(11, Pin.OUT, 0),
+    GREEN_LED = Pin(10, Pin.OUT, 0)
+    RED_LED = Pin(11, Pin.OUT, 0)
 except BaseException as e:
     while True:
         print(f"FATAL ERROR: could not initialize LED pins: {e}")
@@ -280,12 +280,13 @@ class WirelessHandler:
         self.WPASSWORD = "bleh"
         self.connected = False
         
-        self.wlan = network.WLAN(network.STA_IF)
+        self.wlan = None #network.WLAN(network.STA_IF)
 
     def connect_wifi(self):
         """
         Function to connect to wifi.
         """
+        return
         self.wlan.active(True)
         self.wlan.connect(self.SSID, self.WPASSWORD)
 
@@ -331,7 +332,7 @@ class WirelessHandler:
         
     
     def isconnected(self):
-        return self.wlan.isconnected()
+        return False #self.wlan.isconnected()
 
 
 # Entry point. This is the first code that runs
