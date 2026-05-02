@@ -7,7 +7,7 @@ from time import sleep
 from machine import Pin, PWM
 from mfrc522 import MFRC522
 import urequests
-#import network
+import network
 
 
 # Constants for keypad
@@ -85,7 +85,7 @@ class Safe:
     def __init__(self):        
         # Internal state variables
         self.passwordBuffer = ""
-        self.keypadAuthenticated = False
+        self.keypadAuthenticated = True
         self.rfidAuthenticated = False
         self.safeOpen = False  # assume safe is closed on power-on
         self.heldKey = None
@@ -280,18 +280,17 @@ class WirelessHandler:
         self.WPASSWORD = "bleh"
         self.connected = False
         
-        self.wlan = None #network.WLAN(network.STA_IF)
+        self.wlan = network.WLAN(network.STA_IF)
 
     def connect_wifi(self):
         """
         Function to connect to wifi.
         """
-        return
         self.wlan.active(True)
         self.wlan.connect(self.SSID, self.WPASSWORD)
 
         print("Connecting to WiFi...")
-        timeout = 15
+        timeout = 1
 
         while not self.wlan.isconnected() and timeout > 0:
             print(".", end="")
@@ -332,7 +331,7 @@ class WirelessHandler:
         
     
     def isconnected(self):
-        return False #self.wlan.isconnected()
+        return self.wlan.isconnected()
 
 
 # Entry point. This is the first code that runs
