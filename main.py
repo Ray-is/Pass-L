@@ -3,7 +3,7 @@
 # This script will STOP running
 # if you open the MicroPython REPL on serial
 # via thonny or a VSCode extension.
-from time import sleep
+from time import sleep, time
 from machine import Pin, PWM
 from mfrc522 import MFRC522
 import urequests
@@ -61,10 +61,17 @@ RFID_FOB_AUTH_FAILURE = 2  # Detected but failed to authenticate (wrong fob)
 RFID_ERROR = 3             # Any error
 
 
+WIFI_CONNECT_MAX_TIMEOUT = 10.0
+WIFI_MESSAGE_MAX_TIMEOUT = 10.0
+
+AUTH_EXPIRE_TIME = 10.0
+
 # LED pin objects (initialized on creation). If we fail to initialize the pins, hang and print the error forever.
 try:
     GREEN_LED = Pin(10, Pin.OUT, 0)
     RED_LED = Pin(11, Pin.OUT, 0)
+    YELLOW_LED = Pin(12, Pin.OUT, 0)
+    RED_LED.value(0)
 except BaseException as e:
     while True:
         print(f"FATAL ERROR: could not initialize LED pins: {e}")
@@ -85,13 +92,15 @@ class Safe:
     def __init__(self):        
         # Internal state variables
         self.passwordBuffer = ""
-        self.keypadAuthenticated = True
+        self.keypadAuthenticated = False
         self.rfidAuthenticated = False
         self.safeOpen = False  # assume safe is closed on power-on
         self.heldKey = None
+        self.queuedTelegramMsg = []
+        self.authTime = None # For expiring authentication
         
         # Servo setup
-        self.servo = PWM(Pin(0))
+        self.servo = PWM(Pin(27))
         self.servo.freq(50)
         
         # If we fail to initialize the RFID, hang and print the error forever
@@ -116,26 +125,28 @@ class Safe:
     def unlock_safe(self):
         """
         Uses the servo to unlock the safe if it isn't already unlocked.
-        Sweeps from 0 to 90 degrees to open the latch.
+        Sweeps from 15 to 75 degrees to open the latch.
         """
         if self.safeOpen:
             return
-        for angle in range(0, 91, 1):
+        for angle in range(15, 77, 1):
             self._set_servo_angle(angle)
             sleep(0.02)
         self.safeOpen = True
-        
+        print("Safe unlocked")
+
     def lock_safe(self):
         """
         Uses the servo to close the safe if it isn't already locked.
-        Sweeps from 90 back to 0 degrees to close the latch.
+        Sweeps from 76 back to 15 degrees to close the latch.
         """
         if not self.safeOpen:
             return
-        for angle in range(90, -1, -1):
+        for angle in range(76, 14, -1):
             self._set_servo_angle(angle)
             sleep(0.02)
         self.safeOpen = False
+        print("Safe locked")
         
         
     def get_keypad_input(self):
@@ -176,7 +187,6 @@ class Safe:
                         self.heldKey = key
                         return key
             rowPin.value(1)
-        self.heldKey = None
         return None
     
     
@@ -210,21 +220,6 @@ class Safe:
         This should be called repeatedly after creating the Safe object.
         """
         
-        # Logic for when both auth methods are passed
-        # If the safe isn't open yet, open it.
-        # If it's already open, wait for the user to press a key. Once they do, lock it.
-        if (self.rfidAuthenticated and self.keypadAuthenticated):
-            if not self.safeOpen:
-                self.unlock_safe()
-                self.wirelesshandler.send_push_notification(f"Safe unlocked!")
-            if self.safeOpen:
-                key = self.get_keypad_input()
-                if key is not None:
-                    self.lock_safe()
-                    self.keypadAuthenticated = False
-                    self.rfidAuthenticated = False
-                    self.wirelesshandler.send_push_notification(f"Safe locked.")
-        
         # Keypad system
         if not self.keypadAuthenticated:
             key = self.get_keypad_input()
@@ -232,10 +227,14 @@ class Safe:
                 if key == KEYPAD_ENTER_KEY:
                     if self.passwordBuffer != KEYPAD_PASSWORD:
                         self.keypadAuthenticated = False
-                        self.wirelesshandler.send_push_notification(f"Incorrect password \"{self.passwordBuffer}\"")
+                        self.queuedTelegramMsg.append(f"Incorrect password \"{self.passwordBuffer}\"")
+                        for i in range(5):
+                            flash_led(RED_LED, 0.05)
+                            sleep(0.05)
                     else:
                         self.keypadAuthenticated = True
-                        self.wirelesshandler.send_push_notification(f"Password correct!")
+                        if not self.rfidAuthenticated:
+                            self.authTime = time()
                     self.passwordBuffer = ""
                 else:
                     self.passwordBuffer += key
@@ -247,28 +246,70 @@ class Safe:
             rfidStatus = self.get_rfid_status()
             if isinstance(rfidStatus, str):
                 self.rfidAuthenticated = True
-                self.wirelesshandler.send_push_notification(f"RFID authenticated successfully by {rfidStatus}!")
+                if not self.keypadAuthenticated:
+                    self.authTime = time()
             elif (rfidStatus == RFID_NO_FOB_DETECTED):
                 pass # ignore
             elif (rfidStatus == RFID_FOB_AUTH_FAILURE):
                 self.rfidAuthenticated = False
-                flash_led(RED_LED, 0.2)
-                self.wirelesshandler.send_push_notification(f"Incorrect RFID Keyfob; you have the wrong one.")
+                for i in range(5):
+                    flash_led(RED_LED, 0.05)
+                    sleep(0.05)
+                self.queuedTelegramMsg.append(f"Incorrect RFID Keyfob; you have the wrong one.")
             elif (rfidStatus == RFID_ERROR):
                 self.rfidAuthenticated = False
-                flash_led(RED_LED, 0.2)
-                self.wirelesshandler.send_push_notification(f"ERROR reading RFID keyfob. Try again.")
-
+                for i in range(5):
+                    flash_led(RED_LED, 0.05)
+                    sleep(0.05)
+                self.queuedTelegramMsg.append(f"ERROR reading RFID keyfob. Try again.")
+        else:
+            sleep(0.4)
+            
+            
+        # If one method is passed, expire the other one after a delay
+        if self.keypadAuthenticated ^ self.rfidAuthenticated:
+            if (time() - self.authTime) > AUTH_EXPIRE_TIME:
+                self.keypadAuthenticated = False
+                self.rfidAuthenticated = False
+            else:
+                pass #self.authTime = time()
+                
+        
+        # Logic for when both auth methods are passed
+        # If the safe isn't open yet, open it.
+        # If it's already open, wait for the user to press a key. Once they do, lock it.
+        if (self.rfidAuthenticated and self.keypadAuthenticated):
+            if not self.safeOpen:
+                YELLOW_LED.value(1)
+                GREEN_LED.value(1)
+                self.unlock_safe()
+                self.queuedTelegramMsg.append(f"Safe unlocked!")
+            else:
+                key = self.get_keypad_input()
+                if key == '#':
+                    YELLOW_LED.value(0)
+                    GREEN_LED.value(0)
+                    self.lock_safe()
+                    self.keypadAuthenticated = False
+                    self.rfidAuthenticated = False
+                    self.queuedTelegramMsg.append(f"Safe locked.")
         
         # LED handling
         if self.rfidAuthenticated:
-            RED_LED.value(1)
+            YELLOW_LED.value(1)
         else:
-            RED_LED.value(0)
+            YELLOW_LED.value(0)
         if self.keypadAuthenticated:
             GREEN_LED.value(1)
         else:
             GREEN_LED.value(0)
+        
+        # Send all messages generated in this loop
+        # This happens after everything else important has already happened
+        if len(self.queuedTelegramMsg) != 0:
+            for msg in self.queuedTelegramMsg:
+                self.wirelesshandler.send_push_notification(msg)
+            self.queuedTelegramMsg = []
 
 
 # Push Notif section, Developed by Felix Garita
@@ -276,8 +317,8 @@ class WirelessHandler:
     def __init__(self):
         self.BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
         self.CHAT_ID = 8787048379
-        self.SSID = "Insert Wifi name here"
-        self.WPASSWORD = "bleh"
+        self.SSID = "Ray iPhone"
+        self.WPASSWORD = "hellohello"
         self.connected = False
         
         self.wlan = network.WLAN(network.STA_IF)
@@ -290,7 +331,7 @@ class WirelessHandler:
         self.wlan.connect(self.SSID, self.WPASSWORD)
 
         print("Connecting to WiFi...")
-        timeout = 1
+        timeout = WIFI_CONNECT_MAX_TIMEOUT
 
         while not self.wlan.isconnected() and timeout > 0:
             print(".", end="")
@@ -313,20 +354,26 @@ class WirelessHandler:
         elif PRINT_ALL_TELEGRAM_TO_CONSOLE:
             print("Telegram: ", msg)
         
+        RED_LED.value(1)
         try:
             url = "https://api.telegram.org/bot{}/sendMessage".format(self.BOT_TOKEN)
             data = "chat_id={}&text={}".format(self.CHAT_ID, msg)
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            response = urequests.post(url, data=data, headers=headers, timeout=3)
+            response = urequests.post(url, data=data, headers=headers, timeout=WIFI_MESSAGE_MAX_TIMEOUT)
             print("Telegram status:", response.status_code)
             print("Response:", response.text)
             response.close()
+            RED_LED.value(0)
             return True
         except OSError as e:
             print("Telegram timeout/network error:", e)
+            RED_LED.value(0)
+            flash_led(RED_LED, 0.05)
             return False
         except Exception as e:
             print("Telegram error:", e)
+            RED_LED.value(0)
+            flash_led(RED_LED, 0.05)
             return False
         
     
@@ -336,5 +383,6 @@ class WirelessHandler:
 
 # Entry point. This is the first code that runs
 safe = Safe()  # calls safe.__init__
+safe._set_servo_angle(14)
 while True:
     safe.loop()
