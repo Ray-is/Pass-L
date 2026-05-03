@@ -20,7 +20,7 @@ The device's electronics include a Raspberry Pi Pico W running MicroPython conne
 ![Animation](.github_images/safe-ezgif.com-repair.gif)
 
 ## Logical Flow Diagram:
-[!State Transition Diagram](.github_images/stateDiagram.png)
+![State Transition Diagram](.github_images/stateDiagram.png)
 
 ## Mechanical design exploded view:
 ![Explodedview](.github_images/399%20safe%20v10_nontrans.png)
