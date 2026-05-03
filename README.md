@@ -12,6 +12,16 @@ The device's electronics include a Raspberry Pi Pico W running MicroPython conne
 * The device will be cheap to assemble/manufacture.
 * The device will not take very long to manufacture.
 
+# Constraints
+* Budget: At most $25.00
+* Time: Must be completed by May 4th
+* Feature: Safe must have two-factor authentication
+* Attribute: Safe must not be openable when unpowered
+* Attribute: Safe must be a fully opaque box with no openings when closed
+* Feature: Safe must provide an auditory and/or visual notification when authentication fails
+* Feature: Has to have a motorized latching mechanism that automatically unlocks on successful authentication
+* Feature: Device must have a power source to power the motorized latch
+
 # User guide
 * To authenticate with the keypad, type in the correct password, then press the * key to enter it. If the password is correct, the green light will turn on. If you get it wrong, the red light will flash, and a push notification indicating an incorrect password will be sent. The green light will also flash whenever a key is registered by the system.
 
