@@ -3,6 +3,15 @@ Development for team E3 "Password"s final project - a two-factor, IoT safe for s
 
 The device's electronics include a Raspberry Pi Pico W running MicroPython connected to a keypad, RFID module, and servo motor. A 3D-printed enclosure surrounds the electronics and provides space for storing items.
 
+# Design Objectives
+* The storage device will only allow users who know the required knowledge or have the required credentials to open it and access its internal contents.
+* The device will have two distinct authentication methods.
+* The device will have an alert system for unauthorized access
+* The device will visually and physically obscure the contents while it is in the “closed” state.
+* The device will not require power to remain in the “closed” state.
+* The device will be cheap to assemble/manufacture.
+* The device will not take very long to manufacture.
+
 # User guide
 * To authenticate with the keypad, type in the correct password, then press the * key to enter it. If the password is correct, the green light will turn on. If you get it wrong, the red light will flash, and a push notification indicating an incorrect password will be sent. The green light will also flash whenever a key is registered by the system.
 
