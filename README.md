@@ -22,6 +22,10 @@ The device's electronics include a Raspberry Pi Pico W running MicroPython conne
 * Feature: Has to have a motorized latching mechanism that automatically unlocks on successful authentication
 * Feature: Device must have a power source to power the motorized latch
 
+# Criteria
+* The cost of a single prototype’s materials and manufacturing should be as cheap as possible.
+* The design and building process should be simple, to ensure a prototype can be made quickly.
+
 # User guide
 * To authenticate with the keypad, type in the correct password, then press the * key to enter it. If the password is correct, the green light will turn on. If you get it wrong, the red light will flash, and a push notification indicating an incorrect password will be sent. The green light will also flash whenever a key is registered by the system.
 
