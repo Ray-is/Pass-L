@@ -102,6 +102,7 @@ class Safe:
         # Servo setup
         self.servo = PWM(Pin(27))
         self.servo.freq(50)
+        self._set_servo_angle(14)
         
         # If we fail to initialize the RFID, hang and print the error forever
         try:
@@ -112,11 +113,12 @@ class Safe:
                 sleep(5)
                 
         # If we fail to connect to the wifi, print the error and continue
+        RED_LED.value(1)
         self.wirelesshandler = WirelessHandler()
         self.wirelesshandler.connect_wifi()
         if not self.wirelesshandler.isconnected():
             print(f"WARN: Could not connect to wifi. Continuing with all telegram/wireless functionality disabled.")
-
+        RED_LED.value(0)
 
     def _set_servo_angle(self, angle):
         pulse_us = 500 + (angle / 180) * 1900
@@ -131,7 +133,7 @@ class Safe:
             return
         for angle in range(15, 77, 1):
             self._set_servo_angle(angle)
-            sleep(0.02)
+            sleep(0.01)
         self.safeOpen = True
         print("Safe unlocked")
 
@@ -144,7 +146,7 @@ class Safe:
             return
         for angle in range(76, 14, -1):
             self._set_servo_angle(angle)
-            sleep(0.02)
+            sleep(0.01)
         self.safeOpen = False
         print("Safe locked")
         
@@ -317,8 +319,8 @@ class WirelessHandler:
     def __init__(self):
         self.BOT_TOKEN = "8742345323:AAFM3KLYQbaCfmAG6VlIARD_PFceZ72pDH0"
         self.CHAT_ID = 8787048379
-        self.SSID = "Ray iPhone"
-        self.WPASSWORD = "hellohello"
+        self.SSID = "Foo"
+        self.WPASSWORD = "Bar"
         self.connected = False
         
         self.wlan = network.WLAN(network.STA_IF)
@@ -383,6 +385,6 @@ class WirelessHandler:
 
 # Entry point. This is the first code that runs
 safe = Safe()  # calls safe.__init__
-safe._set_servo_angle(14)
+#safe._set_servo_angle(14)
 while True:
     safe.loop()
