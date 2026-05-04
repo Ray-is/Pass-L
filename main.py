@@ -185,9 +185,7 @@ class Safe:
                 if colPin.value() == 0: # Key pulled down by row wire
                     rowPin.value(1)
                     key = KEYPAD_PINS_2_KEYS[(row, col)]
-                    if key != self.heldKey:
-                        self.heldKey = key
-                        return key
+                    return key
             rowPin.value(1)
         return None
     
